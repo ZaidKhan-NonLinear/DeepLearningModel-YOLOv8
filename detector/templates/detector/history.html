@@ -1,0 +1,356 @@
+{% extends 'detector/base.html' %}
+{% load static %}
+
+{% block title %}Detection History - YOLO Object Detection{% endblock %}
+
+{% block content %}
+<!-- CSRF Token for AJAX requests -->
+{% csrf_token %}
+<div class="row justify-content-center">
+    <div class="col-lg-12">
+        <!-- Header -->
+        <div class="text-center mb-5">
+            <h1 class="display-4 text-primary">
+                <i class="fas fa-history"></i> Detection History
+            </h1>
+            <p class="lead text-muted">
+                View your previous image analysis results
+            </p>
+        </div>
+
+        <!-- History Table -->
+        <div class="card shadow-lg">
+            <div class="card-header bg-primary text-white">
+                <h5 class="mb-0">
+                    <i class="fas fa-list"></i> Recent Detections
+                </h5>
+            </div>
+            <div class="card-body">
+                {% if detections %}
+                    <div class="table-responsive">
+                        <table class="table table-striped table-hover">
+                            <thead class="table-dark">
+                                <tr>
+                                    <th>Image</th>
+                                    <th>Uploaded</th>
+                                    <th>Objects Found</th>
+                                    <th>Classes</th>
+                                    <th>Processing Time</th>
+                                    <th>Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for detection in detections %}
+                                <tr>
+                                    <td>
+                                        <img src="{{ detection.image.url }}" 
+                                             class="img-thumbnail" 
+                                             style="width: 60px; height: 60px; object-fit: cover;"
+                                             alt="Detection {{ detection.id }}">
+                                    </td>
+                                    <td>
+                                        <small class="text-muted">
+                                            {{ detection.uploaded_at|date:"M d, Y" }}<br>
+                                            {{ detection.uploaded_at|time:"H:i" }}
+                                        </small>
+                                    </td>
+                                    <td>
+                                        <span class="badge bg-primary fs-6">
+                                            {{ detection.total_detections }}
+                                        </span>
+                                    </td>
+                                    <td>
+                                        {% for class_name, count in detection.get_class_counts.items %}
+                                            <span class="badge bg-secondary me-1">
+                                                {{ class_name }} ({{ count }})
+                                            </span>
+                                        {% endfor %}
+                                    </td>
+                                    <td>
+                                        <span class="text-success fw-bold">
+                                            {{ detection.get_processing_time_display }}s
+                                        </span>
+                                    </td>
+                                    <td>
+                                        <button class="btn btn-sm btn-outline-primary view-details-btn" 
+                                                data-detection-id="{{ detection.id }}"
+                                                onclick="viewDetails({{ detection.id }})">
+                                            <i class="fas fa-eye"></i> View
+                                        </button>
+                                    </td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                {% else %}
+                    <div class="text-center py-5">
+                        <i class="fas fa-history fa-3x text-muted mb-3"></i>
+                        <h4 class="text-muted">No detections yet</h4>
+                        <p class="text-muted">Upload your first image to see detection history here.</p>
+                        <a href="{% url 'detector:index' %}" class="btn btn-primary">
+                            <i class="fas fa-upload"></i> Upload Image
+                        </a>
+                    </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Details Modal -->
+<div class="modal fade" id="detailsModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">
+                    <i class="fas fa-info-circle"></i> Detection Details
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body" id="modalBody">
+                <!-- Details will be loaded here -->
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+// Store detection data for JavaScript access
+const detectionData = [
+    {% for detection in detections %}
+    {
+        id: {{ detection.id }},
+        image: "{{ detection.image.url|escapejs }}",
+        total_detections: {{ detection.total_detections }},
+        processing_time: "{{ detection.get_processing_time_display }}",
+        uploaded_at: "{{ detection.uploaded_at|date:'c'|escapejs }}",
+        class_counts: "{{ detection.get_class_counts|escapejs }}",
+        detection_results: "{{ detection.get_safe_json_data|escapejs }}"
+    }{% if not forloop.last %},{% endif %}
+    {% endfor %}
+];
+
+function viewDetails(detectionId) {
+    console.log('Viewing details for detection ID:', detectionId);
+    
+    // Find the detection data
+    const detection = detectionData.find(d => d.id === detectionId);
+    
+    if (!detection) {
+        console.error('Detection not found:', detectionId);
+        showError('Detection details not found.');
+        return;
+    }
+    
+    console.log('Found detection:', detection);
+    
+    // Build modal content
+    const modalBody = document.getElementById('modalBody');
+    
+    try {
+        // Safely parse JSON data
+        let classCounts = {};
+        let detections = [];
+        
+        try {
+            classCounts = typeof detection.class_counts === 'string' 
+                ? JSON.parse(detection.class_counts) 
+                : detection.class_counts || {};
+        } catch (e) {
+            console.warn('Error parsing class_counts:', e);
+            classCounts = {};
+        }
+        
+        try {
+            const detectionResults = typeof detection.detection_results === 'string' 
+                ? JSON.parse(detection.detection_results) 
+                : detection.detection_results || {};
+            detections = detectionResults.detections || [];
+        } catch (e) {
+            console.warn('Error parsing detection_results:', e);
+            detections = [];
+        }
+        
+        // Format class counts with proper escaping
+        const classCountsHtml = Object.entries(classCounts)
+            .map(([className, count]) => {
+                const escapedClassName = escapeHtml(className);
+                const escapedCount = escapeHtml(String(count));
+                return `<span class="badge bg-primary me-1 mb-1">${escapedClassName} (${escapedCount})</span>`;
+            }).join('');
+        
+        // Format individual detections with proper escaping
+        const detectionsHtml = detections
+            .map(det => {
+                const escapedClassName = escapeHtml(det.class_name || 'Unknown');
+                const confidence = parseFloat(det.confidence) || 0;
+                const bbox = det.bbox || { x: 0, y: 0, width: 0, height: 0 };
+                
+                return `
+                    <tr>
+                        <td><span class="badge bg-secondary">${escapedClassName}</span></td>
+                        <td>
+                            <div class="d-flex align-items-center">
+                                <div class="confidence-bar me-2" style="width: 80px;">
+                                    <div class="confidence-fill" style="width: ${Math.min(confidence * 100, 100)}%"></div>
+                                </div>
+                                <span class="fw-bold">${(confidence * 100).toFixed(1)}%</span>
+                            </div>
+                        </td>
+                        <td>
+                            <small class="text-muted">
+                                (${parseFloat(bbox.x).toFixed(1)}, ${parseFloat(bbox.y).toFixed(1)})<br>
+                                ${parseFloat(bbox.width).toFixed(1)} × ${parseFloat(bbox.height).toFixed(1)}
+                            </small>
+                        </td>
+                    </tr>
+                `;
+            }).join('');
+        
+        // Safely escape image URL
+        const imageUrl = escapeHtml(detection.image);
+        const processingTime = parseFloat(detection.processing_time) || 0;
+        const totalDetections = parseInt(detection.total_detections) || 0;
+        
+        modalBody.innerHTML = `
+            <div class="row">
+                <div class="col-md-6">
+                    <h6><i class="fas fa-image"></i> Original Image</h6>
+                    <img src="${imageUrl}" class="img-fluid rounded shadow" alt="Detection" style="max-height: 400px;" onerror="this.src='data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNDAwIiBoZWlnaHQ9IjMwMCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cmVjdCB3aWR0aD0iMTAwJSIgaGVpZ2h0PSIxMDAlIiBmaWxsPSIjZGRkIi8+PHRleHQgeD0iNTAlIiB5PSI1MCUiIGZvbnQtZmFtaWx5PSJBcmlhbCIgZm9udC1zaXplPSIxOCIgZmlsbD0iIzk5OSIgdGV4dC1hbmNob3I9Im1pZGRsZSIgZHk9Ii4zZW0iPkltYWdlIG5vdCBmb3VuZDwvdGV4dD48L3N2Zz4='">
+                </div>
+                <div class="col-md-6">
+                    <h6><i class="fas fa-chart-bar"></i> Summary</h6>
+                    <div class="card bg-light">
+                        <div class="card-body">
+                            <ul class="list-unstyled mb-0">
+                                <li><strong>Total Objects:</strong> <span class="badge bg-primary">${totalDetections}</span></li>
+                                <li><strong>Processing Time:</strong> <span class="text-success fw-bold">${processingTime.toFixed(2)}s</span></li>
+                                <li><strong>Uploaded:</strong> <small class="text-muted">${new Date(detection.uploaded_at).toLocaleString()}</small></li>
+                            </ul>
+                        </div>
+                    </div>
+                    
+                    <h6 class="mt-3"><i class="fas fa-tags"></i> Class Distribution</h6>
+                    <div class="mb-3">
+                        ${classCountsHtml || '<span class="text-muted">No classes detected</span>'}
+                    </div>
+                    
+                    <h6><i class="fas fa-list"></i> Individual Detections</h6>
+                    <div class="table-responsive" style="max-height: 300px; overflow-y: auto;">
+                        <table class="table table-sm table-striped">
+                            <thead class="table-dark">
+                                <tr>
+                                    <th>Class</th>
+                                    <th>Confidence</th>
+                                    <th>Position & Size</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                ${detectionsHtml || '<tr><td colspan="3" class="text-center text-muted">No detections</td></tr>'}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        `;
+        
+        // Show modal
+        const modal = new bootstrap.Modal(document.getElementById('detailsModal'));
+        modal.show();
+        
+    } catch (error) {
+        console.error('Error building modal content:', error);
+        showError('Error loading detection details.');
+    }
+}
+
+// Utility function to escape HTML
+function escapeHtml(text) {
+    if (typeof text !== 'string') {
+        return String(text);
+    }
+    const map = {
+        '&': '&amp;',
+        '<': '&lt;',
+        '>': '&gt;',
+        '"': '&quot;',
+        "'": '&#039;'
+    };
+    return text.replace(/[&<>"']/g, function(m) { return map[m]; });
+}
+
+// Show error message
+function showError(message) {
+    const errorAlert = document.createElement('div');
+    errorAlert.className = 'alert alert-danger alert-dismissible fade show position-fixed';
+    errorAlert.style.cssText = 'top: 20px; right: 20px; z-index: 9999; min-width: 300px;';
+    errorAlert.innerHTML = `
+        <i class="fas fa-exclamation-triangle"></i>
+        <span>${escapeHtml(message)}</span>
+        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+    `;
+    
+    document.body.appendChild(errorAlert);
+    
+    // Auto-remove after 5 seconds
+    setTimeout(() => {
+        if (errorAlert.parentNode) {
+            errorAlert.remove();
+        }
+    }, 5000);
+}
+
+// Initialize page
+document.addEventListener('DOMContentLoaded', function() {
+    console.log('History page loaded with', detectionData.length, 'detections');
+    
+    // Validate detection data
+    if (!Array.isArray(detectionData)) {
+        console.error('Invalid detection data format');
+        showError('Error loading detection history data.');
+        return;
+    }
+    
+    // Add click handlers to view buttons
+    document.querySelectorAll('.view-details-btn').forEach(button => {
+        button.addEventListener('click', function(e) {
+            e.preventDefault();
+            const detectionId = parseInt(this.getAttribute('data-detection-id'));
+            if (isNaN(detectionId)) {
+                console.error('Invalid detection ID:', this.getAttribute('data-detection-id'));
+                showError('Invalid detection ID.');
+                return;
+            }
+            viewDetails(detectionId);
+        });
+    });
+    
+    // Add hover effects to table rows
+    document.querySelectorAll('tbody tr').forEach(row => {
+        row.addEventListener('mouseenter', function() {
+            this.style.backgroundColor = '#f8f9fa';
+        });
+        row.addEventListener('mouseleave', function() {
+            this.style.backgroundColor = '';
+        });
+    });
+    
+    // Add loading state management
+    const modal = document.getElementById('detailsModal');
+    if (modal) {
+        modal.addEventListener('show.bs.modal', function() {
+            const modalBody = document.getElementById('modalBody');
+            if (modalBody && !modalBody.innerHTML.trim()) {
+                modalBody.innerHTML = '<div class="text-center"><div class="spinner-border" role="status"><span class="visually-hidden">Loading...</span></div></div>';
+            }
+        });
+    }
+});
+</script>
+{% endblock %}

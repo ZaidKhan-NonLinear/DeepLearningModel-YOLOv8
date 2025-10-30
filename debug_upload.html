@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Upload Debug Test</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; }
+        .debug-section { margin: 20px 0; padding: 15px; border: 1px solid #ccc; }
+        .error { color: red; }
+        .success { color: green; }
+        #preview { max-width: 300px; margin: 10px 0; }
+    </style>
+</head>
+<body>
+    <h1>Upload Debug Test</h1>
+    
+    <div class="debug-section">
+        <h3>File Input Test</h3>
+        <input type="file" id="testFileInput" accept="image/*">
+        <button onclick="testFileInput()">Test File Input</button>
+        <div id="fileResult"></div>
+        <img id="preview" style="display: none;">
+    </div>
+    
+    <div class="debug-section">
+        <h3>Console Log</h3>
+        <div id="consoleLog" style="background: #f0f0f0; padding: 10px; height: 200px; overflow-y: scroll;"></div>
+    </div>
+
+    <script>
+        // Override console.log to display in the page
+        const originalLog = console.log;
+        const originalError = console.error;
+        const logDiv = document.getElementById('consoleLog');
+        
+        function addToLog(message, type = 'log') {
+            const div = document.createElement('div');
+            div.className = type;
+            div.textContent = `[${new Date().toLocaleTimeString()}] ${message}`;
+            logDiv.appendChild(div);
+            logDiv.scrollTop = logDiv.scrollHeight;
+        }
+        
+        console.log = function(...args) {
+            originalLog.apply(console, args);
+            addToLog(args.join(' '), 'log');
+        };
+        
+        console.error = function(...args) {
+            originalError.apply(console, args);
+            addToLog(args.join(' '), 'error');
+        };
+        
+        function testFileInput() {
+            const fileInput = document.getElementById('testFileInput');
+            const resultDiv = document.getElementById('fileResult');
+            const preview = document.getElementById('preview');
+            
+            console.log('Testing file input...');
+            
+            if (fileInput.files.length === 0) {
+                resultDiv.innerHTML = '<span class="error">No file selected</span>';
+                console.error('No file selected');
+                return;
+            }
+            
+            const file = fileInput.files[0];
+            console.log('File selected:', file.name, file.type, file.size);
+            
+            // Test file validation
+            if (!file.type.startsWith('image/')) {
+                resultDiv.innerHTML = '<span class="error">Not an image file</span>';
+                console.error('Invalid file type:', file.type);
+                return;
+            }
+            
+            if (file.size > 10 * 1024 * 1024) {
+                resultDiv.innerHTML = '<span class="error">File too large</span>';
+                console.error('File too large:', file.size);
+                return;
+            }
+            
+            // Test FileReader
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                console.log('FileReader success');
+                preview.src = e.target.result;
+                preview.style.display = 'block';
+                resultDiv.innerHTML = '<span class="success">File loaded successfully!</span>';
+            };
+            
+            reader.onerror = function(error) {
+                console.error('FileReader error:', error);
+                resultDiv.innerHTML = '<span class="error">FileReader error</span>';
+            };
+            
+            reader.readAsDataURL(file);
+        }
+        
+        // Test on page load
+        document.addEventListener('DOMContentLoaded', function() {
+            console.log('Debug page loaded');
+            
+            const fileInput = document.getElementById('testFileInput');
+            fileInput.addEventListener('change', function() {
+                console.log('File input changed');
+                testFileInput();
+            });
+        });
+    </script>
+</body>
+</html>
